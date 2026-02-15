@@ -1,91 +1,75 @@
-import os
 import requests
+import os
 import asyncio
 from telegram import Bot
+from datetime import datetime
 
-FROM = os.environ["FROM_STATION"]
-TO = os.environ["TO_STATION"]
-DATE = os.environ["TRAVEL_DATE"]
-MAX_PRICE = float(os.environ["MAX_PRICE"])
+FROM_STATION = "Warszawa Centralna"
+TO_STATION = "Kraków Główny"
+DATE = "2026-03-15"
+PRICE_LIMIT = 60.0
 
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
-CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
-
-LAST_PRICE_FILE = "last_price.txt"
+TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 
 
-# --------------------------
-# Pobranie ceny z API KOLEO
-# --------------------------
 def get_price():
-    url = "https://koleo.pl/api/v2/search"
+    url = "https://bilkom.pl/api/search"
 
-    params = {
-        "query[date]": DATE,
-        "query[from]": FROM,
-        "query[to]": TO
+    payload = {
+        "from": FROM_STATION,
+        "to": TO_STATION,
+        "date": DATE,
+        "time": "00:00",
+        "adults": 1,
+        "children": 0
     }
 
     headers = {
         "User-Agent": "Mozilla/5.0",
-        "Accept": "application/json"
+        "Content-Type": "application/json"
     }
 
-    response = requests.get(url, params=params, headers=headers, timeout=30)
+    response = requests.post(url, json=payload, headers=headers)
 
     if response.status_code != 200:
-        raise Exception("Błąd API KOLEO")
+        raise Exception(f"Błąd API Bilkom: {response.status_code}")
 
     data = response.json()
 
-    # Pierwsza cena z wyników
-    price = data["data"][0]["price"]["amount"]
-    return float(price)
+    prices = []
+
+    for connection in data.get("connections", []):
+        price = connection.get("price")
+        if price:
+            prices.append(float(price))
+
+    if not prices:
+        raise Exception("Nie znaleziono cen w odpowiedzi API")
+
+    return min(prices)
 
 
-# --------------------------
-# Telegram
-# --------------------------
-async def notify(price):
+async def send_telegram(message):
     bot = Bot(token=TELEGRAM_TOKEN)
-    await bot.send_message(
-        chat_id=CHAT_ID,
-        text=(
-            f"🚆 KOLEO – alert cenowy\n"
-            f"{FROM} → {TO}\n"
-            f"📅 {DATE}\n"
-            f"💰 {price} zł\n"
-            f"🎯 limit: {MAX_PRICE} zł"
-        )
-    )
+    await bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message)
 
 
-def load_last_price():
-    if not os.path.exists(LAST_PRICE_FILE):
-        return None
-    with open(LAST_PRICE_FILE) as f:
-        return float(f.read())
-
-
-def save_last_price(price):
-    with open(LAST_PRICE_FILE, "w") as f:
-        f.write(str(price))
-
-
-# --------------------------
-# MAIN
-# --------------------------
 async def main():
     price = get_price()
-    print("Aktualna cena:", price)
+    print(f"Aktualna najniższa cena: {price} zł")
 
-    last_price = load_last_price()
-
-    if price <= MAX_PRICE and price != last_price:
-        await notify(price)
-        save_last_price(price)
+    if price < PRICE_LIMIT:
+        message = (
+            f"🔥 Cena spadła!\n\n"
+            f"{FROM_STATION} → {TO_STATION}\n"
+            f"Data: {DATE}\n"
+            f"Cena: {price} zł\n"
+            f"Limit: {PRICE_LIMIT} zł"
+        )
+        await send_telegram(message)
     else:
-        print("Brak powiadomienia.")
+        print("Cena powyżej limitu – brak powiadomienia.")
 
 
 if __name__ == "__main__":
