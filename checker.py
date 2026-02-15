@@ -14,41 +14,33 @@ CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 LAST_PRICE_FILE = "last_price.txt"
 
 
+
 async def get_price():
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)  # headless na CI
+        browser = await p.chromium.launch(headless=True)
         page = await browser.new_page()
 
         await page.goto("https://koleo.pl/", wait_until="networkidle", timeout=60000)
-        await asyncio.sleep(2)  # poczekaj aż JS dokończy render
+        await asyncio.sleep(2)  # poczekaj aż JS zrenderuje formularz
 
         # Pobranie pól w kolejności w DOM
         inputs = await page.query_selector_all("input")
         await inputs[0].fill(FROM)  # Skąd
         await inputs[1].fill(TO)    # Dokąd
 
-        # Data
-        await page.evaluate(
-            """(date) => {
-                const input = document.querySelector('input[type="date"]');
-                input.value = date;
-                input.dispatchEvent(new Event('change', { bubbles: true }));
-            }""",
-            DATE
-        )
+        # Data – poprawione, stabilne
+        date_input = await page.wait_for_selector('input[type="date"]', timeout=30000)
+        await date_input.fill(DATE)
 
         # Klikamy Szukaj
         await page.click('button[type="submit"]')
 
-        # Czekamy aż pojawi się cena
+        # Czekamy na pierwszą cenę
         await page.wait_for_selector("text=zł", timeout=60000)
         price_text = await page.locator("text=zł").first.inner_text()
 
         await browser.close()
         return float(price_text.replace("zł", "").replace(",", ".").strip())
-
-
-
 
 
 
