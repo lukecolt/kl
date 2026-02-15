@@ -16,20 +16,23 @@ LAST_PRICE_FILE = "last_price.txt"
 
 async def get_price():
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=False)
+        browser = await p.chromium.launch(headless=True)  # headless na CI
         page = await browser.new_page()
 
         await page.goto("https://koleo.pl/", wait_until="networkidle", timeout=60000)
-        await asyncio.sleep(2)  # czekamy na pełny JS
+        await asyncio.sleep(2)  # poczekaj aż JS dokończy render
 
+        # Pobranie pól w kolejności w DOM
         inputs = await page.query_selector_all("input")
-        await inputs[0].fill(FROM)
-        await inputs[1].fill(TO)
+        await inputs[0].fill(FROM)  # Skąd
+        await inputs[1].fill(TO)    # Dokąd
 
         # Data
         await page.evaluate(
             """(date) => {
-                document.querySelector('input[type="date"]').value = date;
+                const input = document.querySelector('input[type="date"]');
+                input.value = date;
+                input.dispatchEvent(new Event('change', { bubbles: true }));
             }""",
             DATE
         )
@@ -43,6 +46,7 @@ async def get_price():
 
         await browser.close()
         return float(price_text.replace("zł", "").replace(",", ".").strip())
+
 
 
 
