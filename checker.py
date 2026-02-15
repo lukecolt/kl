@@ -16,47 +16,34 @@ LAST_PRICE_FILE = "last_price.txt"
 
 async def get_price():
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
-        page = await browser.new_page(
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/120.0.0.0 Safari/537.36"
-            )
-        )
+        browser = await p.chromium.launch(headless=False)
+        page = await browser.new_page()
 
-        # Wchodzimy na stronę KOLEO
-        await page.goto("https://koleo.pl/", wait_until="domcontentloaded", timeout=60000)
+        await page.goto("https://koleo.pl/", wait_until="networkidle", timeout=60000)
+        await asyncio.sleep(2)  # czekamy na pełny JS
 
-        # Czekamy aż pojawią się pola formularza
-        await page.wait_for_selector('input[name="departureStation"]', timeout=30000)
-        await page.wait_for_selector('input[name="arrivalStation"]', timeout=30000)
+        inputs = await page.query_selector_all("input")
+        await inputs[0].fill(FROM)
+        await inputs[1].fill(TO)
 
-        # Wpisujemy stacje
-        await page.fill('input[name="departureStation"]', FROM)
-        await page.fill('input[name="arrivalStation"]', TO)
-
-        # Wpisujemy datę – bezpiecznie przez JS
+        # Data
         await page.evaluate(
             """(date) => {
-                const input = document.querySelector('input[type="date"]');
-                input.value = date;
-                input.dispatchEvent(new Event('change', { bubbles: true }));
+                document.querySelector('input[type="date"]').value = date;
             }""",
             DATE
         )
 
-        # Klikamy przycisk Szukaj
+        # Klikamy Szukaj
         await page.click('button[type="submit"]')
 
-        # Czekamy na pierwszą cenę
-        await page.wait_for_selector("text=zł", timeout=30000)
+        # Czekamy aż pojawi się cena
+        await page.wait_for_selector("text=zł", timeout=60000)
         price_text = await page.locator("text=zł").first.inner_text()
 
         await browser.close()
+        return float(price_text.replace("zł", "").replace(",", ".").strip())
 
-        price = float(price_text.replace("zł", "").replace(",", ".").strip())
-        return price
 
 
 
