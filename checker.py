@@ -25,24 +25,18 @@ async def get_price():
             )
         )
 
+        # Wchodzimy na stronę KOLEO
         await page.goto("https://koleo.pl/", wait_until="domcontentloaded", timeout=60000)
 
-        # Czekamy aż formularz wyszukiwania się pojawi
-        await page.wait_for_selector("form", timeout=30000)
+        # Czekamy aż pojawią się pola formularza
+        await page.wait_for_selector('input[name="departureStation"]', timeout=30000)
+        await page.wait_for_selector('input[name="arrivalStation"]', timeout=30000)
 
-        # Pola wyszukiwania – bardziej odporne selektory
-        from_input = page.get_by_role("textbox", name="Skąd")
-        to_input = page.get_by_role("textbox", name="Dokąd")
+        # Wpisujemy stacje
+        await page.fill('input[name="departureStation"]', FROM)
+        await page.fill('input[name="arrivalStation"]', TO)
 
-        await from_input.click()
-        await from_input.fill(FROM)
-        await page.keyboard.press("Enter")
-
-        await to_input.click()
-        await to_input.fill(TO)
-        await page.keyboard.press("Enter")
-
-        # Data – bezpieczniej przez JS
+        # Wpisujemy datę – bezpiecznie przez JS
         await page.evaluate(
             """(date) => {
                 const input = document.querySelector('input[type="date"]');
@@ -52,24 +46,18 @@ async def get_price():
             DATE
         )
 
-        # Szukaj
-        await page.get_by_role("button", name="Szukaj").click()
+        # Klikamy przycisk Szukaj
+        await page.click('button[type="submit"]')
 
-        # Czekamy na jakąkolwiek cenę
+        # Czekamy na pierwszą cenę
         await page.wait_for_selector("text=zł", timeout=30000)
-
-        # Pobieramy pierwszą cenę
         price_text = await page.locator("text=zł").first.inner_text()
 
         await browser.close()
 
-        price = float(
-            price_text.replace("zł", "")
-            .replace(",", ".")
-            .strip()
-        )
-
+        price = float(price_text.replace("zł", "").replace(",", ".").strip())
         return price
+
 
 
 
