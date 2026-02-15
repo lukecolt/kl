@@ -17,20 +17,31 @@ CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 LAST_PRICE_FILE = "last_price.txt"
 
 # --------------------------
-# Funkcja pobierająca cenę
+# Funkcja pobierająca cenę z KOLEO
 # --------------------------
 async def get_price():
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         page = await browser.new_page()
 
-        # Używamy URL z datą w query string (stabilne w CI)
+        # Data i stacje w URL – stabilne w CI
         url = f"https://koleo.pl/?from={FROM}&to={TO}&date={DATE}"
         await page.goto(url, wait_until="networkidle", timeout=60000)
+        await asyncio.sleep(3)  # poczekaj aż JS w pełni wyrenderuje wyniki
 
-        # Czekamy, aż pojawi się cena
-        await page.wait_for_selector("text=zł", timeout=60000)
-        price_text = await page.locator("text=zł").first.inner_text()
+        # Stabilny selektor pierwszego wyniku
+        price_text = None
+        for _ in range(6):  # retry co 5s, max 30s
+            try:
+                # Dopasuj do rzeczywistej klasy ceny w KOLEO
+                price_text = await page.locator("div.ticket-result .ticket-price").first.inner_text()
+                if price_text:
+                    break
+            except:
+                await asyncio.sleep(5)
+
+        if not price_text:
+            raise Exception("Nie znaleziono ceny – możliwe zmiany w KOLEO")
 
         await browser.close()
         # zamieniamy na float
@@ -74,7 +85,7 @@ async def main():
 
     last_price = load_last_price()
 
-    # Wysyłamy Telegram tylko, jeśli cena jest <= MAX_PRICE i różna od ostatniej
+    # Telegram tylko jeśli cena ≤ MAX_PRICE i zmieniła się
     if price <= MAX_PRICE and price != last_price:
         await notify(price)
         save_last_price(price)
